@@ -1,30 +1,76 @@
-﻿import { Injectable } from '@nestjs/common';
+﻿import { Injectable, NotFoundException } from '@nestjs/common';
+import { InjectRepository } from '@nestjs/typeorm';
+import { Repository } from 'typeorm';
 import { QueryUsersDto } from './dto/query-users.dto';
 import { UserEntity } from './entities/user.entity';
-import { UserRole } from '../../common/enums/user-role.enum';
 
 @Injectable()
 export class UsersService {
-  findMe(): UserEntity {
+  constructor(
+    @InjectRepository(UserEntity)
+    private readonly userRepository: Repository<UserEntity>,
+  ) {}
+
+  async findMe(): Promise<Record<string, unknown>> {
+    const user = await this.userRepository.findOne({
+      where: { employeeNo: 'E10001' },
+      relations: ['department'],
+    });
+
+    if (!user) {
+      throw new NotFoundException('Default user not found. Please seed users table first.');
+    }
+
     return {
-      id: 1,
-      employeeNo: 'E10001',
-      name: '张三',
-      mobile: '13800000000',
-      email: 'zhangsan@example.com',
-      departmentId: 1,
-      departmentName: '市场部',
-      role: UserRole.EMPLOYEE,
-      status: 1,
+      id: Number(user.id),
+      employeeNo: user.employeeNo,
+      name: user.name,
+      mobile: user.mobile,
+      email: user.email,
+      departmentId: user.departmentId,
+      departmentName: user.department?.name ?? '',
+      role: user.role,
+      status: user.status,
     };
   }
 
-  findAll(query: QueryUsersDto) {
+  async findAll(query: QueryUsersDto) {
+    const queryBuilder = this.userRepository
+      .createQueryBuilder('user')
+      .leftJoinAndSelect('user.department', 'department');
+
+    if (query.keyword) {
+      queryBuilder.andWhere('(user.name LIKE :keyword OR user.employeeNo LIKE :keyword)', {
+        keyword: `%${query.keyword}%`,
+      });
+    }
+
+    if (query.role) {
+      queryBuilder.andWhere('user.role = :role', { role: query.role });
+    }
+
+    queryBuilder
+      .orderBy('user.createdAt', 'DESC')
+      .skip((query.page - 1) * query.pageSize)
+      .take(query.pageSize);
+
+    const [list, total] = await queryBuilder.getManyAndCount();
+
     return {
-      list: [this.findMe()],
+      list: list.map((user) => ({
+        id: Number(user.id),
+        employeeNo: user.employeeNo,
+        name: user.name,
+        mobile: user.mobile,
+        email: user.email,
+        departmentId: user.departmentId,
+        departmentName: user.department?.name ?? '',
+        role: user.role,
+        status: user.status,
+      })),
       page: query.page,
       pageSize: query.pageSize,
-      total: 1,
+      total,
     };
   }
 }

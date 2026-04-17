@@ -1,26 +1,31 @@
 ﻿import { Injectable } from '@nestjs/common';
 import { LoginDto } from './dto/login.dto';
 import { AuthSessionEntity } from './entities/auth-session.entity';
-import { UserRole } from '../../common/enums/user-role.enum';
+import { UsersService } from '../users/users.service';
 
 @Injectable()
 export class AuthService {
-  login(payload: LoginDto): AuthSessionEntity {
+  constructor(private readonly usersService: UsersService) {}
+
+  async login(payload: LoginDto): Promise<AuthSessionEntity> {
+    const profile = await this.usersService.findMe();
     return {
       token: `mock-token-${payload.employeeNo ?? 'employee'}`,
-      userId: 1,
-      name: '张三',
-      role: UserRole.EMPLOYEE,
+      userId: Number(profile.id),
+      name: String(profile.name),
+      role: profile.role as AuthSessionEntity['role'],
       expiresIn: 7200,
     };
   }
 
-  profile() {
+  async profile() {
+    const profile = await this.usersService.findMe();
     return {
-      id: 1,
-      employeeNo: 'E10001',
-      name: '张三',
-      role: UserRole.EMPLOYEE,
+      id: profile.id,
+      employeeNo: profile.employeeNo,
+      name: profile.name,
+      role: profile.role,
+      departmentName: profile.departmentName,
     };
   }
 }
