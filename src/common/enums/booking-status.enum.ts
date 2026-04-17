@@ -1,0 +1,8 @@
+﻿export enum BookingStatus {
+  INIT = 'INIT',
+  PROCESSING = 'PROCESSING',
+  BOOKED = 'BOOKED',
+  TICKETED = 'TICKETED',
+  FAILED = 'FAILED',
+  CANCELLED = 'CANCELLED',
+}
