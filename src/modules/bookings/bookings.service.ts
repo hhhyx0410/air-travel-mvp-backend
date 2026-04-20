@@ -1,4 +1,4 @@
-﻿import { Injectable, NotFoundException } from '@nestjs/common';
+import { Injectable, NotFoundException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { ApplicationStatus } from '../../common/enums/application-status.enum';
@@ -35,7 +35,7 @@ export class BookingsService {
       this.bookingRepository.create({
         applicationId,
         attemptNo: attemptCount + 1,
-        operatorId: null,
+        operatorId: 1,
         bookingChannel: payload.bookingChannel,
         airline: payload.airline,
         flightNo: payload.flightNo,

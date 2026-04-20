@@ -1,4 +1,4 @@
-﻿import { IsDateString, IsEnum, IsNotEmpty, IsNumber, IsOptional, IsString, MaxLength } from 'class-validator';
+import { IsDateString, IsEnum, IsNotEmpty, IsNumber, IsOptional, IsString, MaxLength } from 'class-validator';
 
 export enum TripType {
   ONE_WAY = 'ONE_WAY',
@@ -45,4 +45,18 @@ export class CreateApplicationDto {
   @IsOptional()
   @IsNumber()
   estimatedBudget?: number;
+
+  @IsOptional()
+  @IsNumber()
+  reviewerOrganizationId?: number;
+
+  @IsOptional()
+  @IsString()
+  reviewerOrganizationName?: string;
+
+  @IsOptional()
+  reviewerIds?: number[];
+
+  @IsOptional()
+  reviewerNames?: string[];
 }

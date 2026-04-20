@@ -1,4 +1,4 @@
-﻿import { Injectable, NotFoundException } from '@nestjs/common';
+import { Injectable, NotFoundException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { ApplicationStatus } from '../../common/enums/application-status.enum';
@@ -92,7 +92,7 @@ export class ApplicationsService {
         action: 'CREATE_APPLICATION',
         fromStatus: null,
         toStatus: ApplicationStatus.PENDING,
-        comment: '员工提交申请',
+        comment: 'å‘˜å·¥æäº¤ç”³è¯·',
       }),
     );
 
@@ -164,6 +164,30 @@ export class ApplicationsService {
     };
   }
 
+  async findAll(query: QueryApplicationsDto) {
+    const queryBuilder = this.applicationRepository
+      .createQueryBuilder('application')
+      .leftJoinAndSelect('application.applicant', 'applicant')
+      .leftJoinAndSelect('application.department', 'department');
+
+    if (query.status) {
+      queryBuilder.andWhere('application.status = :status', { status: query.status });
+    }
+
+    queryBuilder
+      .orderBy('application.submittedAt', 'DESC')
+      .skip((query.page - 1) * query.pageSize)
+      .take(query.pageSize);
+
+    const [list, total] = await queryBuilder.getManyAndCount();
+
+    return {
+      list: list.map((item) => this.mapApplication(item)),
+      page: query.page,
+      pageSize: query.pageSize,
+      total,
+    };
+  }
   async findOne(id: number) {
     const detail = await this.applicationRepository.findOne({
       where: { id },
@@ -239,5 +263,17 @@ export class ApplicationsService {
       status: payload.status,
       comment: payload.comment ?? '',
     };
+  }
+  async remove(id: number) {
+    const detail = await this.applicationRepository.findOne({ where: { id } });
+    if (!detail) {
+      throw new NotFoundException(`Application ${id} not found`);
+    }
+
+    await this.bookingRepository.delete({ applicationId: id });
+    await this.applicationLogRepository.delete({ applicationId: id });
+    await this.applicationRepository.delete({ id });
+
+    return { id, deleted: true };
   }
 }
