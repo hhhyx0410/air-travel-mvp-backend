@@ -1,4 +1,4 @@
-import { Injectable, NotFoundException, UnauthorizedException } from '@nestjs/common';
+﻿import { Injectable, NotFoundException, UnauthorizedException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { ApplicationStatus } from '../../common/enums/application-status.enum';
@@ -58,11 +58,13 @@ export class ApplicationsService {
   private async resolveApplicant(token?: string) {
     if (token) {
       const currentAccount = await this.platformService.getCurrentAccount(token);
-      const applicant = await this.userRepository.findOne({ where: { id: currentAccount.userId }, relations: ['department'] });
-      if (!applicant) {
-        throw new NotFoundException('当前账号未绑定业务用户');
+      if (currentAccount) {
+        const applicant = await this.userRepository.findOne({ where: { id: currentAccount.userId }, relations: ['department'] });
+        if (!applicant) {
+          throw new NotFoundException('当前账号未绑定业务用户');
+        }
+        return applicant;
       }
-      return applicant;
     }
 
     const fallbackApplicant = await this.userRepository.findOne({ where: { employeeNo: 'E10001' }, relations: ['department'] });
@@ -214,7 +216,7 @@ export class ApplicationsService {
 
     if (token) {
       const account = await this.platformService.getCurrentAccount(token);
-      if (account.role === 'EMPLOYEE' && Number(detail.applicantId) !== Number(account.userId)) {
+      if (account && account.role === 'EMPLOYEE' && Number(detail.applicantId) !== Number(account.userId)) {
         throw new UnauthorizedException('只能删除自己的申请');
       }
     }

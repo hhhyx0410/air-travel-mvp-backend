@@ -179,6 +179,11 @@ export class PlatformService {
     return { store, account };
   }
 
+  private assertAuthenticated(account: PlatformAccount | null): PlatformAccount {
+    if (!account) throw new UnauthorizedException('请先登录');
+    return account;
+  }
+
   async getCurrentAccount(token?: string) {
     const { account } = await this.getStoreAndAccount(token);
     return account;
@@ -308,7 +313,8 @@ export class PlatformService {
 
   async fetchPendingAdminAccounts(token?: string) {
     const { store, account } = await this.getStoreAndAccount(token);
-    this.assertDeveloper(account);
+    const currentAccount = this.assertAuthenticated(account);
+    this.assertDeveloper(currentAccount);
     return store.accounts.filter((item) => item.role === 'ADMIN' && item.approvalStatus === 'PENDING').map((item) => ({
       id: item.id,
       username: item.username,
@@ -321,7 +327,8 @@ export class PlatformService {
 
   async fetchAdminApprovalHistory(token?: string) {
     const { store, account } = await this.getStoreAndAccount(token);
-    this.assertDeveloper(account);
+    const currentAccount = this.assertAuthenticated(account);
+    this.assertDeveloper(currentAccount);
     return store.accounts.filter((item) => item.role === 'ADMIN' && item.approvalStatus !== 'PENDING').sort((a, b) => String(b.reviewedAt || b.createdAt).localeCompare(String(a.reviewedAt || a.createdAt))).map((item) => ({
       id: item.id,
       username: item.username,
@@ -336,24 +343,26 @@ export class PlatformService {
 
   async approveAdminAccount(token: string | undefined, id: number) {
     const { store, account } = await this.getStoreAndAccount(token);
-    this.assertDeveloper(account);
+    const currentAccount = this.assertAuthenticated(account);
+    this.assertDeveloper(currentAccount);
     const target = store.accounts.find((item) => item.id === id && item.role === 'ADMIN');
     if (!target) throw new NotFoundException('未找到待审核账号');
     target.approvalStatus = 'APPROVED';
     target.reviewedAt = new Date().toISOString();
-    target.reviewedBy = account.username;
+    target.reviewedBy = currentAccount.username;
     await this.writeStore(store);
     return this.buildProfile(target);
   }
 
   async rejectAdminAccount(token: string | undefined, id: number) {
     const { store, account } = await this.getStoreAndAccount(token);
-    this.assertDeveloper(account);
+    const currentAccount = this.assertAuthenticated(account);
+    this.assertDeveloper(currentAccount);
     const target = store.accounts.find((item) => item.id === id && item.role === 'ADMIN');
     if (!target) throw new NotFoundException('未找到待审核账号');
     target.approvalStatus = 'REJECTED';
     target.reviewedAt = new Date().toISOString();
-    target.reviewedBy = account.username;
+    target.reviewedBy = currentAccount.username;
     await this.writeStore(store);
     return this.buildProfile(target);
   }
@@ -377,27 +386,30 @@ export class PlatformService {
 
   async joinOrganization(token: string | undefined, organizationId: number) {
     const { store, account } = await this.getStoreAndAccount(token);
+    const currentAccount = this.assertAuthenticated(account);
     const target = await this.departmentRepository.findOne({ where: { id: organizationId, status: 1 } });
     if (!target) throw new NotFoundException('未找到目标组织');
-    account.organizationId = Number(target.id);
-    account.organizationName = target.name;
-    await this.userRepository.update({ id: account.userId }, { departmentId: Number(target.id) });
+    currentAccount.organizationId = Number(target.id);
+    currentAccount.organizationName = target.name;
+    await this.userRepository.update({ id: currentAccount.userId }, { departmentId: Number(target.id) });
     await this.writeStore(store);
     return this.getProfile(token);
   }
 
   async leaveCurrentOrganization(token?: string) {
     const { store, account } = await this.getStoreAndAccount(token);
-    account.organizationId = 0;
-    account.organizationName = '';
-    await this.userRepository.update({ id: account.userId }, { departmentId: null });
+    const currentAccount = this.assertAuthenticated(account);
+    currentAccount.organizationId = 0;
+    currentAccount.organizationName = '';
+    await this.userRepository.update({ id: currentAccount.userId }, { departmentId: null });
     await this.writeStore(store);
     return this.getProfile(token);
   }
 
   async createOrganization(token: string | undefined, name: string) {
     const { store, account } = await this.getStoreAndAccount(token);
-    if (!['ADMIN', 'DEVELOPER'].includes(account.role)) throw new UnauthorizedException('仅管理员或开发者可创建组织');
+    const currentAccount = this.assertAuthenticated(account);
+    if (!['ADMIN', 'DEVELOPER'].includes(currentAccount.role)) throw new UnauthorizedException('仅管理员或开发者可创建组织');
     const normalizedName = String(name || '').trim();
     if (!normalizedName) throw new BadRequestException('请输入组织名称');
     const existing = await this.departmentRepository.findOne({ where: { name: normalizedName } });
@@ -406,17 +418,18 @@ export class PlatformService {
     department.name = normalizedName;
     department.status = 1;
     const saved = await this.departmentRepository.save(department);
-    account.organizationId = Number(saved.id);
-    account.organizationName = saved.name;
-    await this.userRepository.update({ id: account.userId }, { departmentId: Number(saved.id) });
+    currentAccount.organizationId = Number(saved.id);
+    currentAccount.organizationName = saved.name;
+    await this.userRepository.update({ id: currentAccount.userId }, { departmentId: Number(saved.id) });
     await this.writeStore(store);
     return { id: Number(saved.id), name: saved.name, profile: await this.getProfile(token) };
   }
 
   async deleteOrganization(token: string | undefined, organizationId: number) {
     const { store, account } = await this.getStoreAndAccount(token);
-    if (!['ADMIN', 'DEVELOPER'].includes(account.role)) throw new UnauthorizedException('仅管理员或开发者可删除组织');
-    if (account.role === 'ADMIN' && account.organizationId !== organizationId) {
+    const currentAccount = this.assertAuthenticated(account);
+    if (!['ADMIN', 'DEVELOPER'].includes(currentAccount.role)) throw new UnauthorizedException('仅管理员或开发者可删除组织');
+    if (currentAccount.role === 'ADMIN' && currentAccount.organizationId !== organizationId) {
       throw new UnauthorizedException('管理员只能删除自己当前所在的组织');
     }
     const target = await this.departmentRepository.findOne({ where: { id: organizationId, status: 1 } });
@@ -487,69 +500,81 @@ export class PlatformService {
 
   async fetchMyInquiries(token?: string) {
     const { store, account } = await this.getStoreAndAccount(token);
-    return store.inquiries.filter((item) => item.userId === account.id).map((item) => this.normalizeInquiry(item, account)).sort((a, b) => String(b.latestAt).localeCompare(String(a.latestAt)));
+    const currentAccount = this.assertAuthenticated(account);
+    return store.inquiries
+      .filter((item) => item.userId === currentAccount.id)
+      .map((item) => this.normalizeInquiry(item, currentAccount))
+      .sort((a, b) => String(b.latestAt).localeCompare(String(a.latestAt)));
   }
 
   async fetchAllInquiries(token?: string) {
     const { store, account } = await this.getStoreAndAccount(token);
-    return store.inquiries.map((item) => this.normalizeInquiry(item, account)).sort((a, b) => String(b.latestAt).localeCompare(String(a.latestAt)));
+    const currentAccount = this.assertAuthenticated(account);
+    return store.inquiries
+      .map((item) => this.normalizeInquiry(item, currentAccount))
+      .sort((a, b) => String(b.latestAt).localeCompare(String(a.latestAt)));
   }
 
   async createInquiry(token: string | undefined, payload: { content: string; subject?: string }) {
     const { store, account } = await this.getStoreAndAccount(token);
+    const currentAccount = this.assertAuthenticated(account);
     const content = String(payload.content || '').trim();
     if (content.length < 4) throw new BadRequestException('咨询内容至少 4 个字');
     const now = new Date().toISOString();
     const inquiry: InquiryRecord = {
       id: this.createInquiryId(),
-      userId: account.id,
-      userName: account.username,
-      userDepartment: account.organizationName || DEFAULT_ORGANIZATION_NAME,
+      userId: currentAccount.id,
+      userName: currentAccount.username,
+      userDepartment: currentAccount.organizationName || DEFAULT_ORGANIZATION_NAME,
       status: 'OPEN',
       subject: String(payload.subject || content || '咨询').trim().slice(0, 24),
       createdAt: now,
-      messages: [{ id: this.createMessageId(), senderRole: 'EMPLOYEE', senderName: account.username, content, createdAt: now }],
+      messages: [{ id: this.createMessageId(), senderRole: 'EMPLOYEE', senderName: currentAccount.username, content, createdAt: now }],
     };
     store.inquiries.unshift(inquiry);
     await this.writeStore(store);
-    return this.normalizeInquiry(inquiry, account);
+    return this.normalizeInquiry(inquiry, currentAccount);
   }
 
   async fetchInquiryDetail(token: string | undefined, id: string) {
     const { store, account } = await this.getStoreAndAccount(token);
+    const currentAccount = this.assertAuthenticated(account);
     const inquiry = store.inquiries.find((item) => item.id === id);
     if (!inquiry) throw new NotFoundException('未找到该咨询记录');
-    return this.normalizeInquiry(inquiry, account);
+    return this.normalizeInquiry(inquiry, currentAccount);
   }
 
   async replyInquiry(token: string | undefined, id: string, content: string) {
     const { store, account } = await this.getStoreAndAccount(token);
+    const currentAccount = this.assertAuthenticated(account);
     const inquiry = store.inquiries.find((item) => item.id === id);
     if (!inquiry) throw new NotFoundException('未找到该咨询记录');
     const normalized = String(content || '').trim();
     if (!normalized) throw new BadRequestException('请输入回复内容');
-    const senderRole = this.isPrivileged(account) ? 'ADMIN' : 'EMPLOYEE';
-    inquiry.messages.push({ id: this.createMessageId(), senderRole, senderName: account.username, content: normalized, createdAt: new Date().toISOString() });
+    const senderRole = this.isPrivileged(currentAccount) ? 'ADMIN' : 'EMPLOYEE';
+    inquiry.messages.push({ id: this.createMessageId(), senderRole, senderName: currentAccount.username, content: normalized, createdAt: new Date().toISOString() });
     inquiry.status = senderRole === 'ADMIN' ? 'REPLIED' : 'OPEN';
     await this.writeStore(store);
-    return this.normalizeInquiry(inquiry, account);
+    return this.normalizeInquiry(inquiry, currentAccount);
   }
 
   async closeInquiry(token: string | undefined, id: string) {
     const { store, account } = await this.getStoreAndAccount(token);
-    if (!this.isPrivileged(account)) throw new UnauthorizedException('仅管理员或开发者可关闭会话');
+    const currentAccount = this.assertAuthenticated(account);
+    if (!this.isPrivileged(currentAccount)) throw new UnauthorizedException('仅管理员或开发者可关闭会话');
     const inquiry = store.inquiries.find((item) => item.id === id);
     if (!inquiry) throw new NotFoundException('未找到该咨询记录');
     inquiry.status = 'CLOSED';
     await this.writeStore(store);
-    return this.normalizeInquiry(inquiry, account);
+    return this.normalizeInquiry(inquiry, currentAccount);
   }
 
   async deleteInquiry(token: string | undefined, id: string) {
     const { store, account } = await this.getStoreAndAccount(token);
+    const currentAccount = this.assertAuthenticated(account);
     const inquiry = store.inquiries.find((item) => item.id === id);
     if (!inquiry) throw new NotFoundException('未找到该咨询记录');
-    if (!this.canDeleteInquiry(account, inquiry)) throw new UnauthorizedException('仅本人或管理员可删除该咨询');
+    if (!this.canDeleteInquiry(currentAccount, inquiry)) throw new UnauthorizedException('仅本人或管理员可删除该咨询');
     store.inquiries = store.inquiries.filter((item) => item.id !== id);
     await this.writeStore(store);
     return true;
@@ -557,12 +582,13 @@ export class PlatformService {
 
   async deleteInquiryMessage(token: string | undefined, inquiryId: string, messageId: string) {
     const { store, account } = await this.getStoreAndAccount(token);
+    const currentAccount = this.assertAuthenticated(account);
     const inquiry = store.inquiries.find((item) => item.id === inquiryId);
     if (!inquiry) throw new NotFoundException('未找到该咨询记录');
-    if (!this.canDeleteMessage(account, inquiry, messageId)) throw new UnauthorizedException('当前消息不支持删除');
+    if (!this.canDeleteMessage(currentAccount, inquiry, messageId)) throw new UnauthorizedException('当前消息不支持删除');
     inquiry.messages = inquiry.messages.filter((item) => item.id !== messageId);
     inquiry.status = this.deriveInquiryStatus(inquiry) as InquiryRecord['status'];
     await this.writeStore(store);
-    return this.normalizeInquiry(inquiry, account);
+    return this.normalizeInquiry(inquiry, currentAccount);
   }
 }
