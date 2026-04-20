@@ -1,4 +1,4 @@
-import { Injectable, NotFoundException } from '@nestjs/common';
+import { Injectable, NotFoundException, UnauthorizedException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { ApplicationStatus } from '../../common/enums/application-status.enum';
@@ -10,6 +10,7 @@ import { UserEntity } from '../users/entities/user.entity';
 import { DepartmentEntity } from '../departments/entities/department.entity';
 import { ApplicationLogEntity } from './entities/application-log.entity';
 import { BookingEntity } from '../bookings/entities/booking.entity';
+import { PlatformService } from '../platform/platform.service';
 
 @Injectable()
 export class ApplicationsService {
@@ -24,6 +25,7 @@ export class ApplicationsService {
     private readonly applicationLogRepository: Repository<ApplicationLogEntity>,
     @InjectRepository(BookingEntity)
     private readonly bookingRepository: Repository<BookingEntity>,
+    private readonly platformService: PlatformService,
   ) {}
 
   private toNumber(value?: string | number | null) {
@@ -53,18 +55,26 @@ export class ApplicationsService {
     };
   }
 
-  async create(payload: CreateApplicationDto) {
-    const applicant = await this.userRepository.findOne({
-      where: { employeeNo: 'E10001' },
-      relations: ['department'],
-    });
-
-    if (!applicant) {
-      throw new NotFoundException('Default applicant not found. Please insert user E10001 first.');
+  private async resolveApplicant(token?: string) {
+    if (token) {
+      const currentAccount = await this.platformService.getCurrentAccount(token);
+      const applicant = await this.userRepository.findOne({ where: { id: currentAccount.userId }, relations: ['department'] });
+      if (!applicant) {
+        throw new NotFoundException('当前账号未绑定业务用户');
+      }
+      return applicant;
     }
 
-    const applicationNo = `TA${new Date().toISOString().slice(0, 10).replace(/-/g, '')}${Date.now().toString().slice(-4)}`;
+    const fallbackApplicant = await this.userRepository.findOne({ where: { employeeNo: 'E10001' }, relations: ['department'] });
+    if (!fallbackApplicant) {
+      throw new NotFoundException('Default applicant not found. Please insert user E10001 first.');
+    }
+    return fallbackApplicant;
+  }
 
+  async create(payload: CreateApplicationDto, token?: string) {
+    const applicant = await this.resolveApplicant(token);
+    const applicationNo = `TA${new Date().toISOString().slice(0, 10).replace(/-/g, '')}${Date.now().toString().slice(-4)}`;
     const application = this.applicationRepository.create({
       applicationNo,
       applicantId: Number(applicant.id),
@@ -92,24 +102,16 @@ export class ApplicationsService {
         action: 'CREATE_APPLICATION',
         fromStatus: null,
         toStatus: ApplicationStatus.PENDING,
-        comment: 'å‘˜å·¥æäº¤ç”³è¯·',
+        comment: '员工提交申请',
       }),
     );
 
-    const detail = await this.applicationRepository.findOne({
-      where: { id: Number(saved.id) },
-      relations: ['applicant', 'department'],
-    });
-
+    const detail = await this.applicationRepository.findOne({ where: { id: Number(saved.id) }, relations: ['applicant', 'department'] });
     return this.mapApplication(detail!);
   }
 
-  async myList(query: QueryApplicationsDto) {
-    const applicant = await this.userRepository.findOne({ where: { employeeNo: 'E10001' } });
-    if (!applicant) {
-      throw new NotFoundException('Default applicant not found. Please insert user E10001 first.');
-    }
-
+  async myList(query: QueryApplicationsDto, token?: string) {
+    const applicant = await this.resolveApplicant(token);
     const queryBuilder = this.applicationRepository
       .createQueryBuilder('application')
       .leftJoinAndSelect('application.applicant', 'applicant')
@@ -120,22 +122,12 @@ export class ApplicationsService {
       queryBuilder.andWhere('application.status = :status', { status: query.status });
     }
 
-    queryBuilder
-      .orderBy('application.submittedAt', 'DESC')
-      .skip((query.page - 1) * query.pageSize)
-      .take(query.pageSize);
-
+    queryBuilder.orderBy('application.submittedAt', 'DESC').skip((query.page - 1) * query.pageSize).take(query.pageSize);
     const [list, total] = await queryBuilder.getManyAndCount();
-
-    return {
-      list: list.map((item) => this.mapApplication(item)),
-      page: query.page,
-      pageSize: query.pageSize,
-      total,
-    };
+    return { list: list.map((item) => this.mapApplication(item)), page: query.page, pageSize: query.pageSize, total };
   }
 
-  async pendingList(query: QueryApplicationsDto) {
+  async pendingList(query: QueryApplicationsDto, _token?: string) {
     const queryBuilder = this.applicationRepository
       .createQueryBuilder('application')
       .leftJoinAndSelect('application.applicant', 'applicant')
@@ -144,27 +136,15 @@ export class ApplicationsService {
     if (query.status) {
       queryBuilder.where('application.status = :status', { status: query.status });
     } else {
-      queryBuilder.where('application.status IN (:...statuses)', {
-        statuses: [ApplicationStatus.PENDING, ApplicationStatus.PROCESSING, ApplicationStatus.SUPPLEMENT],
-      });
+      queryBuilder.where('application.status IN (:...statuses)', { statuses: [ApplicationStatus.PENDING, ApplicationStatus.PROCESSING, ApplicationStatus.SUPPLEMENT] });
     }
 
-    queryBuilder
-      .orderBy('application.submittedAt', 'DESC')
-      .skip((query.page - 1) * query.pageSize)
-      .take(query.pageSize);
-
+    queryBuilder.orderBy('application.submittedAt', 'DESC').skip((query.page - 1) * query.pageSize).take(query.pageSize);
     const [list, total] = await queryBuilder.getManyAndCount();
-
-    return {
-      list: list.map((item) => this.mapApplication(item)),
-      page: query.page,
-      pageSize: query.pageSize,
-      total,
-    };
+    return { list: list.map((item) => this.mapApplication(item)), page: query.page, pageSize: query.pageSize, total };
   }
 
-  async findAll(query: QueryApplicationsDto) {
+  async findAll(query: QueryApplicationsDto, _token?: string) {
     const queryBuilder = this.applicationRepository
       .createQueryBuilder('application')
       .leftJoinAndSelect('application.applicant', 'applicant')
@@ -174,51 +154,25 @@ export class ApplicationsService {
       queryBuilder.andWhere('application.status = :status', { status: query.status });
     }
 
-    queryBuilder
-      .orderBy('application.submittedAt', 'DESC')
-      .skip((query.page - 1) * query.pageSize)
-      .take(query.pageSize);
-
+    queryBuilder.orderBy('application.submittedAt', 'DESC').skip((query.page - 1) * query.pageSize).take(query.pageSize);
     const [list, total] = await queryBuilder.getManyAndCount();
-
-    return {
-      list: list.map((item) => this.mapApplication(item)),
-      page: query.page,
-      pageSize: query.pageSize,
-      total,
-    };
+    return { list: list.map((item) => this.mapApplication(item)), page: query.page, pageSize: query.pageSize, total };
   }
-  async findOne(id: number) {
-    const detail = await this.applicationRepository.findOne({
-      where: { id },
-      relations: ['applicant', 'department'],
-    });
 
+  async findOne(id: number, _token?: string) {
+    const detail = await this.applicationRepository.findOne({ where: { id }, relations: ['applicant', 'department'] });
     if (!detail) {
       throw new NotFoundException(`Application ${id} not found`);
     }
 
     const [logs, bookings] = await Promise.all([
-      this.applicationLogRepository.find({
-        where: { applicationId: id },
-        order: { createdAt: 'DESC' },
-      }),
-      this.bookingRepository.find({
-        where: { applicationId: id },
-        order: { createdAt: 'DESC' },
-      }),
+      this.applicationLogRepository.find({ where: { applicationId: id }, order: { createdAt: 'DESC' } }),
+      this.bookingRepository.find({ where: { applicationId: id }, order: { createdAt: 'DESC' } }),
     ]);
 
     return {
       ...this.mapApplication(detail),
-      logs: logs.map((log) => ({
-        id: Number(log.id),
-        action: log.action,
-        fromStatus: log.fromStatus,
-        toStatus: log.toStatus,
-        comment: log.comment,
-        createdAt: log.createdAt,
-      })),
+      logs: logs.map((log) => ({ id: Number(log.id), action: log.action, fromStatus: log.fromStatus, toStatus: log.toStatus, comment: log.comment, createdAt: log.createdAt })),
       bookings: bookings.map((booking) => ({
         id: Number(booking.id),
         applicationId: Number(booking.applicationId),
@@ -236,7 +190,7 @@ export class ApplicationsService {
     };
   }
 
-  async updateStatus(id: number, payload: UpdateApplicationStatusDto) {
+  async updateStatus(id: number, payload: UpdateApplicationStatusDto, _token?: string) {
     const detail = await this.applicationRepository.findOne({ where: { id } });
     if (!detail) {
       throw new NotFoundException(`Application ${id} not found`);
@@ -248,32 +202,26 @@ export class ApplicationsService {
       detail.completedAt = new Date();
     }
     await this.applicationRepository.save(detail);
-    await this.applicationLogRepository.save(
-      this.applicationLogRepository.create({
-        applicationId: id,
-        action: 'CHANGE_STATUS',
-        fromStatus,
-        toStatus: payload.status,
-        comment: payload.comment ?? '',
-      }),
-    );
-
-    return {
-      id,
-      status: payload.status,
-      comment: payload.comment ?? '',
-    };
+    await this.applicationLogRepository.save(this.applicationLogRepository.create({ applicationId: id, action: 'CHANGE_STATUS', fromStatus, toStatus: payload.status, comment: payload.comment ?? '' }));
+    return { id, status: payload.status, comment: payload.comment ?? '' };
   }
-  async remove(id: number) {
+
+  async remove(id: number, token?: string) {
     const detail = await this.applicationRepository.findOne({ where: { id } });
     if (!detail) {
       throw new NotFoundException(`Application ${id} not found`);
     }
 
+    if (token) {
+      const account = await this.platformService.getCurrentAccount(token);
+      if (account.role === 'EMPLOYEE' && Number(detail.applicantId) !== Number(account.userId)) {
+        throw new UnauthorizedException('只能删除自己的申请');
+      }
+    }
+
     await this.bookingRepository.delete({ applicationId: id });
     await this.applicationLogRepository.delete({ applicationId: id });
     await this.applicationRepository.delete({ id });
-
     return { id, deleted: true };
   }
 }

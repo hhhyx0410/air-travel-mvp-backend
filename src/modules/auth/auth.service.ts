@@ -1,31 +1,41 @@
-﻿import { Injectable } from '@nestjs/common';
+import { Injectable } from '@nestjs/common';
+import { PlatformService } from '../platform/platform.service';
 import { LoginDto } from './dto/login.dto';
-import { AuthSessionEntity } from './entities/auth-session.entity';
-import { UsersService } from '../users/users.service';
+import { RegisterDto } from './dto/register.dto';
 
 @Injectable()
 export class AuthService {
-  constructor(private readonly usersService: UsersService) {}
+  constructor(private readonly platformService: PlatformService) {}
 
-  async login(payload: LoginDto): Promise<AuthSessionEntity> {
-    const profile = await this.usersService.findMe();
-    return {
-      token: `mock-token-${payload.employeeNo ?? 'employee'}`,
-      userId: Number(profile.id),
-      name: String(profile.name),
-      role: profile.role as AuthSessionEntity['role'],
-      expiresIn: 7200,
-    };
+  async login(payload: LoginDto) {
+    return this.platformService.login(payload.username, payload.password);
   }
 
-  async profile() {
-    const profile = await this.usersService.findMe();
-    return {
-      id: profile.id,
-      employeeNo: profile.employeeNo,
-      name: profile.name,
-      role: profile.role,
-      departmentName: profile.departmentName,
-    };
+  async register(payload: RegisterDto) {
+    return this.platformService.registerAccount(payload);
+  }
+
+  async profile(token?: string) {
+    return this.platformService.getProfile(token);
+  }
+
+  async logout(token?: string) {
+    return this.platformService.logout(token);
+  }
+
+  async fetchPendingAdminAccounts(token?: string) {
+    return this.platformService.fetchPendingAdminAccounts(token);
+  }
+
+  async fetchAdminApprovalHistory(token?: string) {
+    return this.platformService.fetchAdminApprovalHistory(token);
+  }
+
+  async approveAdminAccount(token: string | undefined, id: number) {
+    return this.platformService.approveAdminAccount(token, id);
+  }
+
+  async rejectAdminAccount(token: string | undefined, id: number) {
+    return this.platformService.rejectAdminAccount(token, id);
   }
 }

@@ -1,4 +1,4 @@
-﻿import { Module } from '@nestjs/common';
+import { Module } from '@nestjs/common';
 import { ConfigModule, ConfigService } from '@nestjs/config';
 import { TypeOrmModule } from '@nestjs/typeorm';
 import { AuthModule } from './modules/auth/auth.module';
@@ -8,6 +8,9 @@ import { ApplicationsModule } from './modules/applications/applications.module';
 import { BookingsModule } from './modules/bookings/bookings.module';
 import { StatisticsModule } from './modules/statistics/statistics.module';
 import { ExportsModule } from './modules/exports/exports.module';
+import { PlatformModule } from './modules/platform/platform.module';
+import { OrganizationsModule } from './modules/organizations/organizations.module';
+import { InquiriesModule } from './modules/inquiries/inquiries.module';
 
 @Module({
   imports: [
@@ -25,6 +28,7 @@ import { ExportsModule } from './modules/exports/exports.module';
         synchronize: false,
       }),
     }),
+    PlatformModule,
     AuthModule,
     UsersModule,
     DepartmentsModule,
@@ -32,6 +36,8 @@ import { ExportsModule } from './modules/exports/exports.module';
     BookingsModule,
     StatisticsModule,
     ExportsModule,
+    OrganizationsModule,
+    InquiriesModule,
   ],
 })
 export class AppModule {}
